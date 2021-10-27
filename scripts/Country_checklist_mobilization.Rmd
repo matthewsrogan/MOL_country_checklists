@@ -1,0 +1,194 @@
+---
+title: "MOL_CountryChecklist_Mobilization"
+author: "Matthew Rogan"
+date: "10/25/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+```
+
+## OVERVIEW
+This document explains the process for prepping country checklists for a given taxa as inputs to the Map of Life (MOL). It prepares the data as species-country pairs and calculates richness within each country. It then matches the data for each country to MOL geom IDs for each ISO3 code. The process is run using a set of custom functions developed as the [MOL_country_checklists repository on Git Hub](https://github.com/matthewsrogan/MOL_country_checklists). Contact Matt Rogan (matthew.rogan@yale.edu) with any questions.
+
+The workflow consists of 7 steps: 1) Prep the R environment, 2) Read data, 3) Harmonize taxonomy (optional), 4) Join spatial info, 5) Compute richness, 6) Run checks, and 7) Export checklist.
+
+If you haven't already, complete [the metadata form](https://docs.google.com/forms/d/1SEWbbNgdVzGN_YRAaO8sRl6kWTHRBGeMM_zt09sy-gk/edit) to ensure that your data are handled properly.
+
+\newline
+**DATA DESCRIPTION**
+
+This workflow assumes that the raw data are provided in long format as a CSV such that each row in the CSV represents a single species-country association. Ideally, country info should be provided using ISO3 codes or using names that are directly relatable to ISO3 codes. The workflow can also incorporate a column that details the source for each record.
+
+If a synonym list is provided, the workflow can also harmonize taxonomies.
+
+## STEP 1: PREPARE R ENVIRONMENT
+First we need to specify a few environmental variables. Begin by specifying the taxonomic group that the checklist represents.
+
+```{r taxa}
+#for odonates
+#taxa = "dragonflies"
+
+#for butterflies
+taxa = "butterflies"
+
+```
+
+Next we're going to specify source folders for data and the relevant code. Within the code directory should be the latest version of the MOL_country_checklists repository. We will also specify a root folder for all country checklist data (the migration directory).
+
+```{r folders}
+#Various scripts
+codeDir = "C:/Users/mr2577/Dropbox/BGC/MoL/Code/Country_checklists"
+
+#Github MOL_country_checklists repository
+pckgDir = paste0(codeDir, "/MOL_country_checklists")
+
+#migration directory - parent directory for processing regional checklists
+migrationDir <- "G:/Shared drives/MOL/Data/datasets/country_checklists"
+
+```
+
+We will also load the tidyverse suite of packages and source the custom functions from the repository.
+
+```{r funs, message=FALSE, echo=FALSE}
+
+library(tidyverse)
+sapply(paste0(pckgDir, "/scripts/", c("ccl_source_funs.R", "checks_taxotools.R")), source)
+
+```
+
+We will also specify the names of the raw data files in preparation for reading them into the environment.
+
+```{r names}
+# Checklist data files
+#ccl_name <- "MOLOdonateChecklistData_0821.csv" #For dragonflies
+
+ccl_name <- "unique_combinations_(072021, literature and gbif).csv" #For butterflies 2
+
+#dragonfly synonym list
+#synList <- googlesheets4::read_sheet("https://docs.google.com/spreadsheets/d/1_WSXtJa3kD32VxHeCKhSe6ovLtWgO7AuEsFpFoj61Fo/edit#gid=306640760")
+
+```
+
+We are now ready to work with the data.
+
+
+## STEP 2: READ DATA INTO R
+We will feed the file path to the raw data into the *read_checklist()* function. this function imports the data using *readr::read_csv()*. It then standardizes column names, runs checks on the data, and prints a summary. In addition to the file path, the function takes as arguments the names of relevant columns in the raw data.
+
+```{r read}
+#path for checklist
+rawPath <- file.path(migrationDir, taxa, ccl_name)
+
+#read in country checklist (ccl) using read_checklist
+ccl <- read_ccl(rawPath = rawPath,
+                geo_col = "GID_0",             #column name with ISO3 codes
+                species_col = "ValidBinomial", #column name for species scientific names
+                source_col = NULL)             #column name for sources (optional)
+
+```
+
+```{r data, echo = F}
+
+head(ccl)
+```
+
+
+## STEP 3: HARMONIZE TAXONOMY
+This step is only necessary if the country checklist taxonomy contains synonyms (e.g., subspecies) that should not be included when tabulating richness. The synonym list should be provided as a csv in long format where each row represents a canonical and its associated accepted scientific name. Ambiguous synonyms should be removed unless these synonyms are intended to be double counted.
+
+If there are other cleaning steps that also need to be run, that can be done now. For example, the odonate literature lists some species from the Dutch Antilles, which now consitutes three separate countries. In the case of butterflies, some former French colonies were tagged with "FRA" instead of their current country codes. To fix these problems, we can just execute ad hoc scripts to replace the values as needed.
+```{r fix}
+# For odonates
+
+# For butterflies
+source(paste0(codeDir, "/R_Scripts/butterflies_fix_ISO3.R"))
+
+```
+
+
+## STEP 4: JOIN GEOM IDs
+Now we match ISO3 codes from the checklist to the MOL Geom IDs corresponding to each country using the *ccl_geoms()* function. The function takes as arguments the checklist containing an "iso3" column (e.g., the output of *read_checklist()*), the source folder for the repository (i.e., *pckgDir* from Step 1), and the logical argument "unmatch_fail" which determines how to handle records that could not be matched to MOL Geoms. If *unmatch_fail = TRUE* (the default) and not all records match, the function returns the unmatched records as a tibble. if *unmatched_fail = FALSE* and not all records match, the function returns a list of two tibbles, the first consisting of all matched records and the second consisting of all unmatched records. If all records match, then the function returns just one tibble.
+```{r match}
+ccl_geo <- ccl_geoms(ccl,
+                     pckgDir = pckgDir)
+
+```
+
+Notice in the case of butterflies that the function returns a warning that 6 records did not have valid ISO3 codes. Because we accepted the default argument of *unmatch_fail = TRUE*, the function only returned a tibble with those problematic records. We can look at those values:
+
+```{r problems, echo=FALSE}
+ccl_geo
+```
+
+The fossil we can discard. "XCA" refers to the Caspian Sea so we won't associate it with any particular country. "BRZ," "BRU," and "SPN" are probably typos, so we will have to ignore them for now. Since we can't fix these cases, let's rerun *ccl_geoms()* but set *unmatch_fail = FALSE*. Then, because we don't care about these problematic records anymore, we'll extract just the tibble of matched records.
+
+```{r geoms, message = FALSE}
+
+ccl_geo <- ccl_geoms(ccl,
+                     pckgDir = pckgDir,
+                     unmatch_fail = FALSE)
+
+#extract only tibble of matched records
+ccl_geo <- ccl_geo[["matched"]] #here, "unmatch" would return the tibble of 6 problematic records
+
+```
+
+## STEP 5: COMPUTE RICHNESS
+Now we are ready to calculate country richness. We do this with the *ccl_richness()* function that accepts as arguments the ccl with accepted country codes, the name of the column that dictate species, and the taxa be analyzed. Richness is calculated for each MOL geomid so it is necessary to run *ccl_geoms()* prior to performing this step. After running the function, we can save the output to a "ready_to_upload" folder within the migration folder (we'll create it if it doesn't exist).
+
+```{r richness}
+
+richness <- ccl_richness(ccl_geo,
+                         species_col = "verbatimscientificname",
+                         taxa = taxa)
+
+#specify ready_to_upload folder
+outDir <- file.path(migrationDir, taxa, "ready_to_upload")
+if(!dir.exists(outDir)) dir.create(outDir)
+
+#write a csv to the ready_to_upload
+richness %>%
+  write_csv(paste0(outDir, "/country_richness.csv"))
+
+```
+
+## STEP 6: DATA CHECKS 
+We'll now run a couple of quick checks on the data to make sure everything looks in order.
+We'll check for odd characters in the canonical. To do this, we'll use the *check_odd_chr_canonical()* function from the taxonomy repository (copied to this repository for use here).
+We'll also check the number of species and the number of countries.
+We'll also make sure there aren't any NAs lurking in the data.
+
+```{r checks}
+#check canonicals
+odd_chr <- check_odd_chr_canonical(ccl_geo, verbatimscientificname)
+
+#check NAs in the geomid
+sum(is.na(ccl_geo$geomid))
+
+#check NAs in the country
+sum(is.na(ccl_geo$iso3))
+
+#get some counts
+n_distinct(ccl_geo$geomid)
+n_distinct(ccl_geo$iso3)
+
+```
+
+
+## STEP 7: EXPORT CHECKLIST
+
+We can use the *ccl_write()* function to export the data. It ensures columns have correct names and order
+```{r export}
+
+ccl_write(ccl_geo,
+          directory = outDir,
+          geo_col = "geomid",
+                      species_col = "verbatimscientificname",
+                      source_col = NULL)
+
+```
+
+Congratulations! Your country checklist is now ready for integration with the Map of Life. One last reminder that if you haven't already, complete [the metadata form](https://docs.google.com/forms/d/1SEWbbNgdVzGN_YRAaO8sRl6kWTHRBGeMM_zt09sy-gk/edit) to ensure that your data are handled properly.

@@ -9,10 +9,10 @@ read_ccl <- function(rawPath,
   dat <- read_csv(rawPath,
                   locale = locale(encoding = "UTF-8"),
                   show_col_types = F) %>%
-    rename(verbatimscientificname = {{species_col}},
+    rename(scientificname = {{species_col}},
            iso3 = {{geo_col}})
   
-  vars <- c("verbatimscientificname", "iso3")
+  vars <- c("scientificname", "iso3")
   if(! is.null(country_col)){
     dat <- dat %>%
       rename(country = {{country_col}})
@@ -29,7 +29,7 @@ read_ccl <- function(rawPath,
   geo_na <- sum(is.na(dat$iso3))
   if(geo_na > 0) warning(paste(geo_na, "observations are missing geographic IDs."))
   
-  spp_na <- sum(is.na(dat$verbatimscientificname))
+  spp_na <- sum(is.na(dat$scientificname))
   if(spp_na > 0) warning(paste(spp_na, "observations are missing scientific names."))
   
   dat <- dat %>%
@@ -38,7 +38,7 @@ read_ccl <- function(rawPath,
   print(paste("This country checklist includes",
               nrow(dat),
               "observations of",
-              n_distinct(dat$verbatimscientificname),
+              n_distinct(dat$scientificname),
               "species across",
               n_distinct(dat$iso3),
               "countries."))
@@ -46,7 +46,7 @@ read_ccl <- function(rawPath,
 }
 
 ccl_richness <- function(ccl,
-                         species_col = "verbatimscientificname",
+                         species_col = "scientificname",
                          taxa){
   richness <- ccl %>%
     select(all_of(species_col), geomid) %>%
@@ -68,16 +68,42 @@ ccl_richness <- function(ccl,
 ### This function matches canonicals in a country checklist (ccl) against
 # a list of species in a master taxonomy and reports unmatched canonicals.
 # If harmonize = TRUE, it will merge accepted canonicals to ccl canonicals
-check_taxonomy <- function(ccl         = ccl, #country checklist tibble
-                           species_col = "verbatimscientificname", #name of column with canonicals in ccl
-                           synlist     = synlist, #master taxonomy
-                           canonical   = "canonical", #name of column with canonicals in synlist
-                           harmonize   = FALSE, #if true, also harmonizes
-                           method      = c("merge", "matchID"),
-                           accid_col   = NULL){
+ccl_taxo <- function(ccl         = ccl, #country checklist tibble
+                     species_col = "scientificname", #name of column with canonicals in ccl
+                     synlist     = synlist, #master taxonomy
+                     canonical   = "canonical", #name of column with canonicals in synlist
+                     harmonize   = FALSE, #if true, also harmonizes
+                     accepted_col = NULL){ #column of accepted canonicals to merge 
   spp <- unique(ccl[[species_col]])
   
   unmatched <- spp[which(!spp %in% synlist[[canonical]])]
+  
+  if(length(unmatched) == 0) print("No unmatched canonicals.")
+  
+  if(length(unmatched) > 0){
+    warning(paste(length(unmatched), "canonicals are not listed in the master taxonomy."))
+    out <- ccl %>% 
+      filter(!.data[[species_col]] %in% synlist[[canonical]])
+  }
+  
+  if(harmonize){
+    if(is.null(accepted_col)) stop("Must specify name of accepted column when harmonize = TRUE.")
+    
+    synlist <- synlist %>%
+      dplyr::select(all_of(c(canonical, accepted_col))) %>%
+      distinct() %>%
+      rename(verbatimscientificname = {{canonical}},
+             scientificname = {{accepted_col}})
+    
+    out <- ccl %>% 
+      rename(verbatimscientificname = {{species_col}}) %>%
+      inner_join(synlist, by = "verbatimscientificname")
+    
+    if(nrow(out) < nrow(ccl)){
+      warning(paste(nrow(ccl) - nrow(out), "records could not be harmonized and have been discarded."))
+    }           
+  }
+  return(out)
 }
 
 ccl_geoms <- function(ccl,
@@ -112,14 +138,16 @@ ccl_geoms <- function(ccl,
 ccl_write <- function(ccl,
                       directory,
                       geo_col = "geomid",
-                      species_col = "verbatimscientificname",
-                      source_col = NULL){
+                      species_col = "scientificname",
+                      country_col = "iso3",
+                      cols2keep = NULL){
   ccl %>% 
-    mutate(accepted = .data[[species_col]]) %>%
-    rename(geomid = {{geo_col}}) %>%
-    select(accepted, geomid, verbatimscientificname, iso3, all_of(source_col)) %>%
-    arrange(geomid, accepted) %>%
-    write_csv(file.path(outDir, paste0(taxa, "_MOL_country_checklist.csv")))
+    rename(geomid = {{geo_col}},
+           scientificname = {{species_col}},
+           iso3 = {{country_col}}) %>%
+    select(geomid, scientificname, iso3, all_of(cols2keep)) %>%
+    arrange(geomid, scientificname) %>%
+    write_csv(file.path(directory, paste0(taxa, "_country_checklist.csv")))
 }
 
 

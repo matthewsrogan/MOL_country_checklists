@@ -1,3 +1,8 @@
+##### READ_CCL #####
+#A function to read in raw country checklist data and standardize column names.
+#It also checks for NAs.
+#It returns a ccl tibble and prints summaries of the data
+
 read_ccl <- function(rawPath,
                      geo_col,
                      species_col,
@@ -45,6 +50,9 @@ read_ccl <- function(rawPath,
   return(dat)
 }
 
+##### CCL_RICHNESS #####
+#Calculates country richness from ccl tibble
+#Assumes data have already been matched to MOL GeomIDs via ccl_geoms()
 ccl_richness <- function(ccl,
                          species_col = "scientificname",
                          taxa){
@@ -65,7 +73,8 @@ ccl_richness <- function(ccl,
   return(richness)
 }
 
-### This function matches canonicals in a country checklist (ccl) against
+##### CCL_TAXO #####
+# This function matches canonicals in a country checklist (ccl) against
 # a list of species in a master taxonomy and reports unmatched canonicals.
 # If harmonize = TRUE, it will merge accepted canonicals to ccl canonicals
 ccl_taxo <- function(ccl         = ccl, #country checklist tibble
@@ -106,6 +115,8 @@ ccl_taxo <- function(ccl         = ccl, #country checklist tibble
   return(out)
 }
 
+##### CCL_GEOMS #####
+#matches ISO3 codes to the GeomIDs of GADM boundaries in MOL
 ccl_geoms <- function(ccl,
                       pckgDir = pckgDir,
                       unmatch_fail = TRUE){
@@ -170,7 +181,28 @@ check_odd_chr_canonical <- function(file_name,field){
 }
 
 
+#Borrowed from checks_taxotools script in the taxonomy repository:
+#https://github.com/yanisica/taxonomy
 
+convert_taxotool <- function(file_name){
+  colnames(file_name) <- tolower(colnames(file_name))
+  
+  accepted <- file_name %>% dplyr::filter(accid == 0)
+  synonym <- file_name %>% dplyr::filter(accid > 0)
+  accepted_dup <- accepted
+  accepted_dup$accid <- accepted_dup$id
+  syns_all <- rbind(synonym,accepted_dup)
+  
+  file_name <- left_join(accepted,syns_all,by=c("id" = "accid")) 
+  
+  file_name <- file_name %>%
+    dplyr::select(canonical.x,canonical.y) %>%
+    rename("Accepted" = canonical.x, "Synonym" = canonical.y) %>%
+    dplyr::distinct(Accepted,Synonym) %>% 
+    dplyr::group_by(Synonym) %>%
+    dplyr::mutate("U.or.A" = if_else(n() == 1, "U","A")) %>%
+    ungroup()
+}
 
 
 

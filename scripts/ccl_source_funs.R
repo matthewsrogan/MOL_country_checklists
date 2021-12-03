@@ -7,7 +7,8 @@ read_ccl <- function(rawPath,
                      geo_col,
                      species_col,
                      country_col = NULL,
-                     source_col = NULL){
+                     source_col = NULL,
+                     cols2keep = NULL){
   require(readr)
   require(dplyr)
   
@@ -29,7 +30,7 @@ read_ccl <- function(rawPath,
     vars <- c(vars, "source")
   }
 
-  dat <- dat %>% dplyr::select(all_of(vars))
+  dat <- dat %>% dplyr::select(all_of(vars), all_of(cols2keep))
   
   geo_na <- sum(is.na(dat$iso3))
   if(geo_na > 0) warning(paste(geo_na, "observations are missing geographic IDs."))

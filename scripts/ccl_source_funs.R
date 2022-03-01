@@ -56,14 +56,16 @@ read_ccl <- function(rawPath,
 #Assumes data have already been matched to MOL GeomIDs via ccl_geoms()
 ccl_richness <- function(ccl,
                          species_col = "scientificname",
+                         country_col = "iso3",
                          taxa){
+  
   richness <- ccl %>%
-    select(all_of(species_col), geomid) %>%
-    group_by(geomid) %>%
-    summarise(n = n_distinct(.data[[species_col]])) %>%
-    ungroup() %>%
+    select(all_of(c({{species_col}}, {{country_col}})), geomid) %>%
+    group_by(across(all_of(c({{country_col}}, "geomid")))) %>%
+    summarise(n = n_distinct(.data[[species_col]]),
+              .groups = "drop") %>%
     mutate(taxa = {{taxa}}) %>%
-    select(geomid, n, taxa)
+    select(geomid, all_of({{country_col}}), n, taxa)
   
   print(paste(taxa,
               "country richness ranged between",

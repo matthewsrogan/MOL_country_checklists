@@ -2,6 +2,7 @@
 #A function to read in raw country checklist data and standardize column names.
 #It also checks for NAs.
 #It returns a ccl tibble and prints summaries of the data
+#Wrapper aroun read_ccl.csv() and read_ccl.rds()
 
 read_ccl <- function(rawPath,
                      geo_col,
@@ -12,11 +13,45 @@ read_ccl <- function(rawPath,
   require(readr)
   require(dplyr)
   
+  if(!grepl(".csv$|.rds$", tolower(rawPath))){
+    stop("The raw country checklist must be in a CSV or RDS format.")
+  }
+  
+  if(grepl("\\.csv$", tolower(rawPath))){
+    out <- read_ccl.csv(rawPath = rawPath,
+                        geo_col = geo_col,
+                        species_col = species_col,
+                        country_col = country_col,
+                        source_col = source_col,
+                        cols2keep = cols2keep)
+  }
+  
+  if(grepl("\\.rds", tolower(rawPath))){
+    out <- read_ccl.rds(rawPath = rawPath,
+                        geo_col = geo_col,
+                        species_col = species_col,
+                        country_col = country_col,
+                        source_col = source_col,
+                        cols2keep = cols2keep)
+  }
+  
+  return(out)
+}
+#### READ_CCL.csv #####
+read_ccl.csv <- function(rawPath,
+                         geo_col,
+                         species_col,
+                         country_col = NULL,
+                         source_col = NULL,
+                         cols2keep = NULL){
+  require(readr)
+  require(dplyr)
+  
   dat <- read_csv(rawPath,
                   locale = locale(encoding = "UTF-8"),
                   show_col_types = F) %>%
-    rename(scientificname = {{species_col}},
-           iso3 = {{geo_col}})
+    rename(scientificname = all_of(species_col),
+           iso3 = all_of(geo_col))
   
   vars <- c("scientificname", "iso3")
   if(! is.null(country_col)){
@@ -30,6 +65,53 @@ read_ccl <- function(rawPath,
     vars <- c(vars, "source")
   }
 
+  dat <- dat %>% dplyr::select(all_of(vars), all_of(cols2keep))
+  
+  geo_na <- sum(is.na(dat$iso3))
+  if(geo_na > 0) warning(paste(geo_na, "observations are missing geographic IDs."))
+  
+  spp_na <- sum(is.na(dat$scientificname))
+  if(spp_na > 0) warning(paste(spp_na, "observations are missing scientific names."))
+  
+  dat <- dat %>%
+    filter(!is.na(iso3))
+  
+  print(paste("This country checklist includes",
+              nrow(dat),
+              "observations of",
+              n_distinct(dat$scientificname),
+              "species across",
+              n_distinct(dat$iso3),
+              "countries."))
+  return(dat)
+}
+
+#### READ_CCL.rds #####
+read_ccl.rds <- function(rawPath,
+                         geo_col,
+                         species_col,
+                         country_col = NULL,
+                         source_col = NULL,
+                         cols2keep = NULL){
+  require(readr)
+  require(dplyr)
+  
+  dat <- read_rds(rawPath) %>%
+    rename(scientificname = all_of(species_col),
+           iso3 = all_of(geo_col))
+  
+  vars <- c("scientificname", "iso3")
+  if(! is.null(country_col)){
+    dat <- dat %>%
+      rename(country = {{country_col}})
+    vars <- c(vars, "country")
+  }
+  if(! is.null(source_col)){
+    dat <- dat %>%
+      rename(source = {{source_col}})
+    vars <- c(vars, "source")
+  }
+  
   dat <- dat %>% dplyr::select(all_of(vars), all_of(cols2keep))
   
   geo_na <- sum(is.na(dat$iso3))
